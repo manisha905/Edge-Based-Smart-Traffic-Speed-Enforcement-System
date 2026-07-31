@@ -336,7 +336,7 @@ This is a genuinely useful section for your report — it shows the network was 
 ---
 
 ## The Final Simulation
-![anpr](https://github.com/user-attachments/assets/27b5289b-c9a1-47ba-9bb1-c0c01d2dd2d3)
+<img src="https://github.com/user-attachments/assets/971f4998-6d8f-4f51-95c1-791d507dc89d" width="600" />
 
 ---
 
