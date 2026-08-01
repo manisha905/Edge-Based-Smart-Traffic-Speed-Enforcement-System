@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SentinelGrid | Secure Access</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-deep:#0a0f1a;
+    --bg-panel:#121a2b;
+    --bg-raised:#1a2438;
+    --border:#263252;
+    --border-soft:#1e2940;
+    --accent:#3f8fd9;
+    --accent-dim:#2c6099;
+    --amber:#e8a33d;
+    --red:#e14c5f;
+    --green:#3fae7a;
+    --text-hi:#eef2f9;
+    --text-mid:#9aa6c0;
+    --text-dim:#5c6785;
+    --mono:'JetBrains Mono',monospace;
+    --disp:'Rajdhani',sans-serif;
+    --body:'Inter',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{
+    font-family:var(--body);
+    background:var(--bg-deep);
+    color:var(--text-hi);
+    min-height:100vh;
+    display:flex;
+    position:relative;
+    overflow-x:hidden;
+  }
+  /* ambient grid backdrop */
+  body::before{
+    content:"";
+    position:fixed;inset:0;
+    background-image:
+      linear-gradient(rgba(63,143,217,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(63,143,217,0.05) 1px, transparent 1px);
+    background-size:48px 48px;
+    pointer-events:none;
+    mask-image:radial-gradient(ellipse 80% 60% at 50% 40%, black 20%, transparent 75%);
+  }
+  .side{
+    flex:1.1;
+    padding:56px 64px;
+    display:flex;
+    flex-direction:column;
+    justify-content:space-between;
+    position:relative;
+    z-index:1;
+    border-right:1px solid var(--border-soft);
+  }
+  .brand{
+    display:flex;align-items:center;gap:14px;
+  }
+  .brand-mark{
+    width:40px;height:40px;
+    border:2px solid var(--accent);
+    border-radius:4px;
+    display:flex;align-items:center;justify-content:center;
+    position:relative;
+  }
+  .brand-mark::after{
+    content:"";
+    width:14px;height:14px;
+    background:var(--accent);
+    clip-path:polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+  }
+  .brand-name{
+    font-family:var(--disp);font-weight:700;font-size:22px;letter-spacing:0.5px;
+  }
+  .brand-name span{color:var(--accent);}
+  .brand-sub{font-family:var(--mono);font-size:11px;color:var(--text-dim);letter-spacing:1.5px;margin-top:2px;text-transform:uppercase;}
+
+  .hero{max-width:480px;}
+  .eyebrow{
+    font-family:var(--mono);font-size:12px;color:var(--accent);
+    letter-spacing:2px;text-transform:uppercase;margin-bottom:18px;
+    display:flex;align-items:center;gap:10px;
+  }
+  .eyebrow::before{content:"";width:22px;height:1px;background:var(--accent);}
+  .hero h1{
+    font-family:var(--disp);font-weight:700;font-size:44px;line-height:1.08;
+    letter-spacing:0.2px;margin-bottom:20px;
+  }
+  .hero h1 em{font-style:normal;color:var(--accent);}
+  .hero p{color:var(--text-mid);font-size:15px;line-height:1.7;}
+
+  .status-strip{
+    display:flex;gap:28px;flex-wrap:wrap;
+    padding-top:32px;margin-top:32px;border-top:1px solid var(--border-soft);
+  }
+  .status-item{display:flex;align-items:center;gap:9px;}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);flex-shrink:0;}
+  .status-item span{font-family:var(--mono);font-size:11.5px;color:var(--text-mid);letter-spacing:0.3px;}
+
+  .foot-note{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);line-height:1.6;}
+
+  .form-side{
+    flex:1;
+    display:flex;align-items:center;justify-content:center;
+    padding:40px;position:relative;z-index:1;
+  }
+  .panel{
+    width:100%;max-width:400px;
+    background:var(--bg-panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:38px 36px 32px;
+  }
+  .panel-head{margin-bottom:28px;}
+  .panel-head h2{font-family:var(--disp);font-size:24px;font-weight:700;margin-bottom:6px;}
+  .panel-head p{font-size:13px;color:var(--text-mid);}
+
+  .field{margin-bottom:18px;}
+  .field label{
+    display:block;font-size:11.5px;font-weight:600;color:var(--text-mid);
+    text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px;
+  }
+  .field input, .field select{
+    width:100%;padding:12px 14px;
+    background:var(--bg-raised);
+    border:1px solid var(--border);
+    border-radius:6px;color:var(--text-hi);font-size:14px;font-family:var(--body);
+    outline:none;transition:border-color .15s;
+  }
+  .field input:focus, .field select:focus{border-color:var(--accent);}
+  .field input::placeholder{color:var(--text-dim);}
+
+  .ip-readout{
+    display:flex;align-items:center;justify-content:space-between;
+    background:var(--bg-raised);border:1px solid var(--border);border-radius:6px;
+    padding:12px 14px;
+  }
+  .ip-readout .val{font-family:var(--mono);font-size:13.5px;color:var(--text-hi);}
+  .ip-readout .tag{
+    font-family:var(--mono);font-size:10px;letter-spacing:0.5px;
+    padding:3px 8px;border-radius:20px;
+  }
+  .tag.checking{background:rgba(232,163,61,0.15);color:var(--amber);}
+  .tag.ok{background:rgba(63,174,122,0.15);color:var(--green);}
+  .tag.fail{background:rgba(225,76,95,0.15);color:var(--red);}
+
+  .hint{font-size:11.5px;color:var(--text-dim);margin-top:7px;line-height:1.5;}
+
+  .submit-btn{
+    width:100%;padding:13px;margin-top:8px;
+    background:var(--accent);border:none;border-radius:6px;
+    color:#04121f;font-family:var(--disp);font-weight:700;font-size:15px;
+    letter-spacing:0.4px;cursor:pointer;transition:background .15s, transform .1s;
+  }
+  .submit-btn:hover{background:#5aa3e5;}
+  .submit-btn:active{transform:scale(0.99);}
+  .submit-btn:disabled{background:var(--bg-raised);color:var(--text-dim);cursor:not-allowed;}
+
+  .error-box{
+    display:none;
+    background:rgba(225,76,95,0.1);border:1px solid rgba(225,76,95,0.35);
+    color:var(--red);font-size:12.5px;padding:10px 12px;border-radius:6px;margin-bottom:16px;
+    line-height:1.5;
+  }
+  .error-box.show{display:block;}
+
+  .demo-note{
+    margin-top:22px;padding-top:18px;border-top:1px solid var(--border-soft);
+    font-size:11px;color:var(--text-dim);line-height:1.7;font-family:var(--mono);
+  }
+  .demo-note b{color:var(--text-mid);}
+
+  @media(max-width:880px){
+    body{flex-direction:column;}
+    .side{border-right:none;border-bottom:1px solid var(--border-soft);padding:36px 28px;}
+    .hero h1{font-size:32px;}
+    .form-side{padding:28px;}
+  }
+</style>
+</head>
+<body>
+
+  <div class="side">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div>
+        <div class="brand-name">Sentinel<span>Grid</span></div>
+        <div class="brand-sub">Roadside Enforcement Network</div>
+      </div>
+    </div>
+
+    <div class="hero">
+      <div class="eyebrow">Restricted Access · Law Enforcement Only</div>
+      <h1>Verified officials <em>only</em> reach this network.</h1>
+      <p>This terminal is bound to a registered station device. Every session is authenticated against your credentials, a live one-time code, and the physical IP address of this machine — access from any other location is refused automatically.</p>
+    </div>
+
+    <div>
+      <div class="status-strip">
+        <div class="status-item"><div class="dot"></div><span>VPN TUNNEL ACTIVE</span></div>
+        <div class="status-item"><div class="dot"></div><span>mTLS CERT VALID</span></div>
+        <div class="status-item"><div class="dot"></div><span>ENCRYPTED CHANNEL</span></div>
+      </div>
+      <div class="foot-note" style="margin-top:20px;">STATION NODE · GANTRY-NET-04 &nbsp;|&nbsp; SESSION IDLE TIMEOUT: 10 MIN &nbsp;|&nbsp; ALL ACCESS ATTEMPTS ARE LOGGED</div>
+    </div>
+  </div>
+
+  <div class="form-side">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Officer Sign-in</h2>
+        <p>Enter your credentials to continue to verification.</p>
+      </div>
+
+      <div class="error-box" id="errorBox"></div>
+
+      <form id="loginForm">
+        <div class="field">
+          <label for="username">Officer / Admin ID</label>
+          <input type="text" id="username" placeholder="e.g. officer1 or admin" autocomplete="off" required>
+        </div>
+
+        <div class="field">
+          <label for="password">Password</label>
+          <input type="password" id="password" placeholder="••••••••" required>
+        </div>
+
+        <div class="field">
+          <label>Device Identity Check</label>
+          <div class="ip-readout">
+            <span class="val" id="ipVal">192.168.10.11</span>
+            <span class="tag ok" id="ipTag">REGISTERED</span>
+          </div>
+          <div class="hint">This device's IP is cross-checked against the station's registered hardware list. Unregistered devices are blocked before password verification even runs.</div>
+        </div>
+
+        <div class="field" id="otpField" style="display:none;">
+          <label for="otp">One-Time Code</label>
+          <input type="text" id="otp" placeholder="6-digit code" maxlength="6" inputmode="numeric">
+          <div class="hint">A code has been generated for this session. (Demo: enter any 6 digits.)</div>
+        </div>
+
+        <button type="submit" class="submit-btn" id="submitBtn">Verify & Continue</button>
+      </form>
+
+      <div class="demo-note">
+        <b>Demo credentials —</b><br>
+        Officer: officer1 / police123<br>
+        Admin: admin / admin123
+      </div>
+    </div>
+  </div>
+
+<script>
+  const form = document.getElementById('loginForm');
+  const btn = document.getElementById('submitBtn');
+  const errorBox = document.getElementById('errorBox');
+  const otpField = document.getElementById('otpField');
+  const ipTag = document.getElementById('ipTag');
+
+  const USERS = {
+    'officer1': { pass: 'police123', role: 'officer', name: 'Insp. R. Kannan', station: 'GANTRY-04' },
+    'officer2': { pass: 'police123', role: 'officer', name: 'SI M. Bhavani', station: 'GANTRY-04' },
+    'admin':    { pass: 'admin123',  role: 'admin',   name: 'Supt. A. Verma', station: 'GANTRY-04 HQ' }
+  };
+
+  let stage = 1; // 1 = credentials, 2 = otp
+
+  function showError(msg){
+    errorBox.textContent = msg;
+    errorBox.classList.add('show');
+  }
+  function clearError(){
+    errorBox.classList.remove('show');
+  }
+
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    clearError();
+
+    const uname = document.getElementById('username').value.trim().toLowerCase();
+    const pass = document.getElementById('password').value;
+
+    if(stage === 1){
+      const user = USERS[uname];
+      if(!user || user.pass !== pass){
+        showError('Credentials not recognized, or this ID is not registered to this station device.');
+        return;
+      }
+      // move to OTP stage
+      stage = 2;
+      otpField.style.display = 'block';
+      document.getElementById('username').disabled = true;
+      document.getElementById('password').disabled = true;
+      btn.textContent = 'Confirm One-Time Code';
+      ipTag.textContent = 'VERIFYING…';
+      ipTag.className = 'tag checking';
+      setTimeout(() => {
+        ipTag.textContent = 'REGISTERED';
+        ipTag.className = 'tag ok';
+      }, 700);
+      return;
+    }
+
+    if(stage === 2){
+      const otp = document.getElementById('otp').value.trim();
+      if(otp.length !== 6){
+        showError('Enter the 6-digit one-time code to complete verification.');
+        return;
+      }
+      const user = USERS[uname];
+      btn.disabled = true;
+      btn.textContent = 'Establishing secure session…';
+      setTimeout(() => {
+        const params = new URLSearchParams({
+          name: user.name,
+          station: user.station,
+          ip: document.getElementById('ipVal').textContent
+        });
+        if(user.role === 'officer'){
+          window.location.href = 'review-queue.html?' + params.toString();
+        } else {
+          window.location.href = 'dashboard.html?' + params.toString();
+        }
+      }, 900);
+    }
+  });
+</script>
+</body>
+</html>
