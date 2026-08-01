@@ -1,6 +1,6 @@
-# Edge-Based ANPR & Speed Enforcement System
+# Edge-Based ANPR, Speed Enforcement & Hit-and-Run Detection System
 
-A privacy-compliant, event-driven speed enforcement architecture combining roadside radar triggers, edge computing, secure networking, and a police-only verification portal with violation analytics.
+A privacy-compliant, event-driven roadside monitoring architecture combining a single roadside radar, trigger-based video capture, edge computing, secure networking, and a police-only verification portal that routes confirmed cases into separate overspeeding and hit-and-run evidence databases.
 
 > **Simulation Note:** Physical hardware (radar, cameras, Jetson/RPi) is represented using **Cisco Packet Tracer** network simulation objects. Real-world computer vision (YOLOv8, OCR) is mocked/scripted for demonstration purposes, since Packet Tracer cannot execute actual ML inference.
 
@@ -27,13 +27,15 @@ A privacy-compliant, event-driven speed enforcement architecture combining roads
 
 ## Project Overview
 
-This project simulates an **automated speed enforcement system** used at traffic gantries. A radar/LiDAR sensor detects vehicle speed; if a violation is detected, a camera captures evidence, an edge device extracts the license plate via OCR, and the event is transmitted securely to a central server. A **restricted, police-only web portal** allows authorized officials to review evidence and confirm or reject each case. Confirmed violations are stored in a database and used to generate **accident-prone zone analytics**, helping direct future police enforcement to high-risk locations.
+This project simulates a **single roadside gantry unit** that serves two enforcement purposes at once: automated overspeeding detection, and hit-and-run evidence capture. A single radar continuously monitors traffic and watches for two distinct conditions — a vehicle exceeding the speed threshold, or a sudden abnormal deceleration/stop pattern consistent with a collision. Either condition triggers the same downstream pipeline: the camera (otherwise off) begins recording a **5-second high-resolution video**, the edge compute node extracts every visible license plate from that clip via ANPR, and the video plus plate images are dispatched securely to the **nearest connected police station**.
+
+A **restricted, police-only web portal** allows authorized officials to review the video evidence and classify each case as **Overspeeding**, **Hit-and-Run**, or **Reject** (false trigger). Based on that classification, the video and plate images are filed into one of two separate evidence databases — kept apart because the two case types have different legal handling, retention needs, and downstream use (e-challan issuance vs. active investigation).
 
 The system is designed around three core principles:
 
-1. **Data Minimization** — non-violation data is discarded immediately; nothing is stored unless a threshold is breached.
-2. **Restricted Access** — only authenticated, authorized police officials can access the verification portal or violation database. The public never interacts with the system directly.
-3. **Evidentiary Integrity** — every captured image is hashed at the point of capture to preserve a tamper-proof chain of custody for legal use.
+1. **Data Minimization** — the camera does not roll continuously; it activates only for 5 seconds per trigger, and nothing is stored unless a trigger condition is met.
+2. **Restricted Access** — only authenticated, authorized police officials can access the verification portal or either evidence database. The public never interacts with the system directly.
+3. **Evidentiary Integrity** — every captured video and plate image is hashed at the point of capture to preserve a tamper-proof chain of custody for legal use, including hit-and-run investigations where the footage may be the primary lead.
 
 ---
 
@@ -41,96 +43,125 @@ The system is designed around three core principles:
 
 | Role | Access Level | Capabilities |
 |---|---|---|
-| **Radar/Camera Edge Node** (simulated) | No portal access | Sends encrypted violation payloads only; cannot read/query the database |
-| **Police Official (Verifier)** | Authenticated login | View pending violations, review evidence, confirm/reject cases, add remarks |
-| **Admin** | Authenticated login (elevated) | Manage officer accounts, configure zone speed thresholds, view analytics dashboard, audit logs |
-| **Vehicle Owner / Public** | **No access** | Receives only the final SMS/e-challan notice; never touches the system |
+| **Radar + Edge Node** (simulated) | No portal access | Detects overspeed or accident conditions, triggers the camera, runs ANPR on the resulting clip, and dispatches the payload; cannot read/query either database |
+| **Police Official (Verifier)** | Authenticated login | Views pending events in the queue, watches the video, sees extracted plate images, classifies each case (Overspeeding / Hit-and-Run / Reject) |
+| **Admin** | Authenticated login (elevated) | Manages officer accounts, configures gantry thresholds, views the combined analytics dashboard across both databases, audit logs |
+| **Vehicle Owner / Public** | **No access** | Receives only the final e-challan notice (overspeeding cases only); never touches the system |
 
 Access to the portal is restricted at both the **application layer** (login + Role-Based Access Control) and the **network layer** (VLAN segmentation + ACLs in Packet Tracer, so unauthorized subnets cannot even reach the portal's ports).
+
+### What each simulated PC represents
+
+| Device | Represents | Role |
+|---|---|---|
+| **Edge-Node-PC** | Roadside compute unit (Jetson/RPi in real deployment) | Runs the ANPR pipeline: receives the radar's trigger, controls the camera, processes the 5-second clip, extracts all visible plates, packages the payload, and dispatches it one-way to the police station server. Never authenticates into the portal — it only pushes data into the raw queue via the ingestion API. |
+| **Officer-PC-1 / Officer-PC-2** | Individual police officers' workstations at the station | Where verification actually happens — an officer logs in, watches the video, reviews the extracted plate images, and classifies the case. Two exist to simulate multiple officers working the queue concurrently and to demonstrate that Police VLAN access isn't limited to a single device. |
+| **Admin-PC** | Supervisor/admin workstation | Higher-privilege access: manages officer accounts, configures per-gantry thresholds, and is the only client with access to the **combined analytics dashboard** (accident hotspots + overspeeding hotspots pulled from both databases). |
 
 ---
 
 ## System Architecture
 
 ```
- ┌───────────────────┐
- │  Radar / LiDAR      │  Continuous speed monitoring
- │  (Edge Sensor)      │
- └─────────┬───────────┘
-           │ Speed > Threshold?
-           ▼
- ┌───────────────────┐
- │  IR Camera Trigger  │  Context shot + Plate-cropped shot
- └─────────┬───────────┘
-           ▼
- ┌───────────────────┐
- │  Edge Compute Node   │  YOLOv8 + OpenCV + OCR (PaddleOCR/Tesseract)
- │  (Jetson/RPi - sim)  │  SHA-256 hash at capture, encrypted payload
- └─────────┬───────────┘
-           │ MQTT/HTTPS over mTLS + VPN tunnel
-           ▼
- ┌───────────────────┐
- │  Central Server     │  Ingestion API → raw_violation_queue
- └─────────┬───────────┘
-           ▼
- ┌───────────────────┐
- │  Police Portal       │  Login-restricted review interface
- │  (RBAC enforced)     │
- └─────────┬───────────┘
-           │ Officer confirms case
-           ▼
- ┌───────────────────┐
- │  confirmed_violations│ → SMS/e-challan dispatch (mocked)
- │  Database            │ → Feeds analytics dashboard
- └───────────────────┘
+ ┌─────────────────────────┐
+ │  Radar (single unit)      │  Continuous monitoring for TWO conditions:
+ │                            │   1) Speed > threshold           → trigger_type: overspeed
+ │                            │   2) Abnormal deceleration/stop  → trigger_type: accident
+ └────────────┬───────────────┘
+              │ Trigger condition met
+              ▼
+ ┌─────────────────────────┐
+ │  Camera (idle by default)  │  Powers on ONLY on trigger
+ │  Records 5-second HD video │  Returns to idle immediately after
+ └────────────┬───────────────┘
+              ▼
+ ┌─────────────────────────┐
+ │  Edge Compute Node          │  YOLOv8 + OpenCV + OCR (PaddleOCR/Tesseract)
+ │  (Jetson/RPi - simulated)   │  Extracts ALL visible plates from the clip
+ │                              │  SHA-256 hash of video + each plate image
+ └────────────┬───────────────┘
+              │ MQTT/HTTPS over mTLS + VPN tunnel
+              ▼
+ ┌─────────────────────────┐
+ │  Nearest Police Station      │  Ingestion API → raw_event_queue
+ │  Central Server               │
+ └────────────┬───────────────┘
+              ▼
+ ┌─────────────────────────┐
+ │  Police Portal                │  Login-restricted review interface
+ │  (RBAC enforced)              │  Officer watches video + plate images
+ └────────────┬───────────────┘
+              │ Officer classifies case
+              ▼
+        ┌─────┴─────┐
+        ▼           ▼
+ ┌───────────┐ ┌───────────────┐
+ │ confirmed_ │ │ confirmed_    │  → e-challan dispatch (overspeeding only)
+ │ overspeeding│ │ hitandrun     │  → Feeds combined analytics dashboard
+ └───────────┘ └───────────────┘
 ```
 
 ---
 
 ## Workflow
 
-1. **Continuous Radar Monitoring** — Radar/LiDAR scans approaching traffic and measures vehicle speed via Doppler shift or laser reflection.
-2. **Violation Triggering** — Edge computer compares detected speed to the zone's threshold. Compliant readings are discarded from RAM instantly.
-3. **Image Capture & ANPR** — On violation, the IR camera captures a context shot and a plate-cropped shot.
-4. **Edge OCR & Metadata Packaging** — YOLOv8 + OCR extract the plate string; speed, location ID, timestamp, and images are packaged into an encrypted payload with a SHA-256 hash.
-5. **Secure Dispatch** — Payload is sent over MQTT/HTTPS via mTLS and VPN tunnel to the central server, landing in `raw_violation_queue`.
-6. **Police Verification** — An authorized officer logs into the portal, reviews the evidence, and confirms or rejects the case.
-7. **Confirmation & Notification** — Confirmed cases move to `confirmed_violations`, trigger an SMS/e-challan (mocked), and become part of the analytics dataset.
-8. **Analytics** — Confirmed violations are aggregated by location and time to identify accident-prone zones requiring increased enforcement.
+1. **Continuous Radar Monitoring** — A single radar scans approaching traffic and simultaneously watches for two conditions: speed exceeding the zone threshold, and abnormal deceleration/stop patterns consistent with a collision.
+2. **Trigger Evaluation** — The edge computer evaluates each reading. Normal traffic is discarded from RAM instantly; no camera activity, no logging.
+3. **Video Capture** — On either trigger type, the camera (otherwise off) activates and records a **5-second high-resolution video** of the scene, then returns to idle.
+4. **Edge ANPR & Metadata Packaging** — YOLOv8 + OCR process the clip and extract **every visible license plate** (not just the triggering vehicle, since hit-and-run scenes may involve multiple vehicles). The video, cropped plate images, trigger type, speed data (if applicable), location ID, and timestamp are packaged into an encrypted payload with SHA-256 hashes for the video and each plate image.
+5. **Secure Dispatch** — The payload is sent over MQTT/HTTPS via mTLS and a VPN tunnel to the **central server of the nearest connected police station** (routed by the gantry's `location_id`), landing in `raw_event_queue`.
+6. **Police Verification** — An authorized officer logs into the portal, watches the video, reviews the extracted plate images, and classifies the case as **Overspeeding**, **Hit-and-Run**, or **Reject**.
+7. **Classification & Filing** — Based on the officer's classification, the video and plate images move into either `confirmed_overspeeding` or `confirmed_hitandrun`. Overspeeding cases additionally trigger an e-challan notice (mocked); hit-and-run cases become active investigation leads, with the plate images serving as the primary means of identifying the vehicle/owner.
+8. **Analytics** — Both confirmed databases feed a combined analytics dashboard, identifying zones with high overspeeding frequency separately from zones with high accident/hit-and-run frequency — since these may call for different enforcement responses (speed cameras vs. physical patrol or road-design review).
 
 ---
 
 ## Database Schema
 
-Two tables separate **unverified** data from **verified, analytics-ready** data — this keeps OCR/radar errors out of official statistics.
+Three tables: one shared intake queue, and two separate confirmed-evidence tables — kept apart because overspeeding and hit-and-run cases have different legal handling, retention rules, and downstream actions.
 
-### `raw_violation_queue` (pre-confirmation)
+### `raw_event_queue` (pre-classification, shared intake)
 
 | Field | Type | Description |
 |---|---|---|
-| `violation_id` | UUID / PK | Unique event identifier |
+| `event_id` | UUID / PK | Unique event identifier |
+| `trigger_type` | ENUM | `overspeed` / `accident` (as flagged by the radar/edge node) |
 | `timestamp` | DATETIME | Time of detection |
 | `location_id` | VARCHAR | Gantry/zone identifier |
-| `speed_detected` | FLOAT | Recorded speed (km/h) |
-| `speed_limit` | FLOAT | Zone threshold at time of event |
-| `plate_text_ocr` | VARCHAR | OCR-extracted plate string |
-| `confidence_score` | FLOAT | OCR/detection confidence |
-| `context_image_hash` | VARCHAR (SHA-256) | Hash of context image |
-| `plate_image_hash` | VARCHAR (SHA-256) | Hash of plate-cropped image |
-| `status` | ENUM | `pending` / `confirmed` / `rejected` |
+| `speed_detected` | FLOAT (nullable) | Recorded speed, if overspeed trigger |
+| `speed_limit` | FLOAT (nullable) | Zone threshold at time of event |
+| `video_file_ref` | VARCHAR | Reference/path to the 5-second clip |
+| `video_hash` | VARCHAR (SHA-256) | Hash of the video at capture time |
+| `detected_plates` | JSON | Array of `{plate_text_ocr, confidence_score, image_hash}` for every plate found in the clip |
+| `status` | ENUM | `pending` / `classified_overspeeding` / `classified_hitandrun` / `rejected` |
 
-### `confirmed_violations` (post-confirmation, analytics source)
+### `confirmed_overspeeding` (post-classification)
 
 | Field | Type | Description |
 |---|---|---|
-| `violation_id` | UUID / FK | References raw queue entry |
+| `event_id` | UUID / FK | References the raw queue entry |
 | `officer_id` | VARCHAR | ID of confirming official |
-| `confirmation_timestamp` | DATETIME | When the case was confirmed |
+| `confirmation_timestamp` | DATETIME | When the case was classified |
 | `location_id` | VARCHAR | Gantry/zone identifier |
 | `zone_coordinates` | GEO / VARCHAR | Lat-long or descriptive location |
 | `speed_detected` | FLOAT | Confirmed recorded speed |
-| `plate_text` | VARCHAR | Verified plate string |
-| `action_taken` | ENUM | `fine_issued` / `warning` / `escalated` |
+| `plate_text` | VARCHAR | Verified plate string of the offending vehicle |
+| `video_file_ref` | VARCHAR | Retained evidence clip |
+| `action_taken` | ENUM | `echallan_issued` / `warning` |
+
+### `confirmed_hitandrun` (post-classification, active investigation evidence)
+
+| Field | Type | Description |
+|---|---|---|
+| `event_id` | UUID / FK | References the raw queue entry |
+| `officer_id` | VARCHAR | ID of confirming official |
+| `confirmation_timestamp` | DATETIME | When the case was classified |
+| `location_id` | VARCHAR | Gantry/zone identifier |
+| `zone_coordinates` | GEO / VARCHAR | Lat-long or descriptive location |
+| `video_file_ref` | VARCHAR | Retained evidence clip (primary exhibit) |
+| `detected_plates` | JSON | All plates visible in the clip, as investigative leads |
+| `case_status` | ENUM | `open` / `under_investigation` / `closed` |
+| `investigating_officer_id` | VARCHAR | Assigned investigator, if different from the reviewing officer |
 
 ### `officer_accounts`
 
@@ -150,23 +181,22 @@ Since physical hardware is simulated, the project focuses on **network design, s
 
 | Component | Packet Tracer Object | Purpose |
 |---|---|---|
-| Roadside Edge Node | PC/Server or IoT "Thing" | Represents Jetson/RPi edge compute |
-| Radar/Camera Sensors | Generic IoT sensor objects | Simulated event generators |
-| Edge Gateway Router | Router | Simulates 4G/5G uplink to WAN |
-| WAN Link | Cloud object | Simulates cellular/internet transport |
-| Central Server | Server (HTTP/DB services) | Hosts ingestion API + police portal |
+| Roadside Edge Node | PC | Represents Jetson/RPi edge compute |
+| Radar (single unit) | PC | Simulated dual-purpose sensor (speed + anomaly detection) |
+| Edge Gateway Router | Router | Roadside gateway toward the police station network |
+| Central Server | Server (HTTP/DB services) | Hosts ingestion API + police portal, tagged to the nearest station's `location_id` |
 | Police Client PCs | PCs on a dedicated VLAN | Access portal only |
 | Firewall/ACL Enforcement | Router ACLs | Restrict traffic by subnet/port |
 
 ### Key Design Requirements
 
-- **VLAN Segmentation**: Police client subnet, edge-node ingestion subnet, and (if present) admin subnet are logically separated.
+- **VLAN Segmentation**: Police client subnet, admin subnet, and server subnet are logically separated.
 - **Access Control Lists (ACLs)**:
   - Edge node → allowed only to reach the server's ingestion API port.
-  - Police subnet → allowed only to reach the portal's HTTP(S)/login port.
+  - Police subnet → allowed only to reach the portal's HTTPS port, and only for return traffic on established connections.
+  - Police subnet → blocked from reaching the Admin subnet directly.
   - All other traffic → denied by default (deny-all fallback rule).
 - **Simulated HTTPS**: Enable HTTP/HTTPS services on the Packet Tracer server object to demonstrate encrypted access to the portal.
-- **Simulated VPN Tunnel**: Site-to-site VPN concept between the roadside router and central server's router, representing the real-world IPsec cellular VPN.
 
 ---
 
@@ -175,29 +205,30 @@ Since physical hardware is simulated, the project focuses on **network design, s
 | Layer | Mechanism |
 |---|---|
 | Device Authentication | Mutual TLS (mTLS) between edge node and server |
-| Data Integrity | SHA-256 hashing of raw images at capture time (chain of custody) |
+| Data Integrity | SHA-256 hashing of the video and each plate image at capture time (chain of custody) |
 | Transport Security | HTTPS/MQTT over TLS; VPN tunnel over cellular uplink |
 | Application Access | Login + Role-Based Access Control (Officer vs Admin) |
 | Network Access | VLAN segmentation + router ACLs restricting subnet-to-port access |
 | Session Management | Token-based sessions (JWT) with auto-timeout |
-| Audit Trail | Logging of every confirm/reject action with officer ID and timestamp |
+| Audit Trail | Logging of every classification action with officer ID and timestamp |
 
 ---
 
 ## Tech Stack
 
 **Computer Vision (simulated/mocked in this phase)**
-- OpenCV — image preprocessing
-- YOLOv8/v10 — vehicle & plate detection
+- OpenCV — video frame preprocessing
+- YOLOv8/v10 — vehicle & plate detection across video frames
 - PaddleOCR / Tesseract — plate text extraction (fine-tuned for Indian plate formats)
 
 **Backend / Portal**
 - Python (Flask/Django) or Node.js (Express)
 - JWT-based authentication, bcrypt password hashing
 - REST API for ingestion + portal endpoints
+- Video streaming/playback support in the officer review UI
 
 **Database**
-- PostgreSQL / MySQL (relational, supports the two-table verified/unverified split)
+- PostgreSQL / MySQL (relational, supports the three-table intake/classification split)
 
 **Networking (Simulated)**
 - Cisco Packet Tracer — topology, VLANs, ACLs, simulated VPN/HTTPS
@@ -205,27 +236,29 @@ Since physical hardware is simulated, the project focuses on **network design, s
 - HTTPS REST APIs — payload dispatch
 
 **Frontend (Portal Dashboard)**
-- HTML/CSS/JS or a lightweight framework (React) for the review UI and analytics charts
+- HTML/CSS/JS or a lightweight framework (React) for the video review UI, classification controls, and analytics charts
 
 ---
 
 ## Compliance & Legal Considerations
 
-- **DPDP Act 2023 alignment**: data minimization (non-violation data discarded), purpose limitation, defined retention periods for evidence.
-- **Chain of custody**: SHA-256 hashes generated at capture time, before any processing, to prove images have not been altered.
-- **Restricted access**: only verified police accounts can view raw evidence or confirm violations — no public-facing access to personal data.
-- **Calibration note**: in a real deployment, radar/LiDAR units require certification for legal admissibility of speed readings; this is out of scope for the simulation but documented here for completeness.
+- **DPDP Act 2023 alignment**: data minimization (camera only records on trigger, nothing retained unless classified), purpose limitation, defined retention periods for evidence.
+- **Chain of custody**: SHA-256 hashes generated at capture time for the video and every plate image, before any processing, to prove footage has not been altered — especially important for hit-and-run cases, where the video may be the sole evidentiary lead.
+- **Restricted access**: only verified police accounts can view raw evidence or classify events — no public-facing access to personal data.
+- **Dual-database separation**: keeping overspeeding and hit-and-run evidence in separate tables reflects their different legal tracks — one feeds an automated e-challan process, the other feeds active investigation, and conflating them risks improper handling of either.
+- **Calibration note**: in a real deployment, radar/LiDAR units require certification for legal admissibility of both speed readings and any accident-detection claims; this is out of scope for the simulation but documented here for completeness.
 
 ---
 
 ## Analytics & Reporting
 
-Once violations are confirmed, the following insights can be generated from `confirmed_violations`:
+Once events are classified, the following insights can be generated from the two confirmed databases:
 
-- **Hotspot Identification** — violation count grouped by `location_id` to flag accident-prone zones.
-- **Time-based Trends** — heatmaps by hour-of-day / day-of-week to identify when enforcement is most needed.
-- **Severity Distribution** — how far over the limit violations tend to be, per zone (informs whether a zone needs physical patrol vs. camera-only monitoring).
-- **Repeat Offender Tracking** — frequency of the same plate appearing across records.
+- **Overspeeding Hotspots** — event count grouped by `location_id` in `confirmed_overspeeding`, identifying zones needing more speed enforcement.
+- **Accident/Hit-and-Run Hotspots** — event count grouped by `location_id` in `confirmed_hitandrun`, identifying zones needing physical patrol, better lighting, or road-design review.
+- **Time-based Trends** — heatmaps by hour-of-day / day-of-week, separately for each case type.
+- **Severity Distribution** — how far over the limit overspeeding events tend to be, per zone.
+- **Repeat Plate Tracking** — frequency of the same plate appearing across either database, useful both for repeat-offender identification and for cross-referencing a hit-and-run plate against prior overspeeding events at the same location.
 
 ---
 
@@ -245,10 +278,11 @@ project-root/
 │   └── schema.sql
 ├── frontend/
 │   ├── login.html
+│   ├── review-queue.html      (video playback + classify controls)
 │   ├── dashboard.html
 │   └── analytics.html
 ├── cv-pipeline/ (mocked for simulation phase)
-│   └── mock_ocr_generator.py
+│   └── mock_anpr_generator.py
 └── docs/
     └── architecture-diagrams/
 ```
@@ -270,14 +304,14 @@ project-root/
 
 ## Roadmap
 
-- [ ] Design and build Packet Tracer network topology (VLANs, ACLs, simulated VPN/HTTPS)
-- [ ] Define and create database schema (`raw_violation_queue`, `confirmed_violations`, `officer_accounts`)
+- [x] Design and build Packet Tracer network topology (VLANs, ACLs, HTTPS)
+- [ ] Define and create database schema (`raw_event_queue`, `confirmed_overspeeding`, `confirmed_hitandrun`, `officer_accounts`)
 - [ ] Build login + RBAC-secured backend
-- [ ] Build case review portal (pending violations → confirm/reject)
-- [ ] Build analytics dashboard (hotspot maps, time trends)
-- [ ] Mock CV/OCR event generator to simulate radar-triggered payloads
+- [ ] Build case review portal with video playback + classify controls (Overspeeding / Hit-and-Run / Reject)
+- [ ] Build analytics dashboard (separate hotspot views per case type)
+- [ ] Mock ANPR/video event generator to simulate radar-triggered payloads
 - [ ] Document chain-of-custody and DPDP compliance mapping
-- [ ] (Stretch) Integrate SMS gateway mock for e-challan notification
+- [ ] (Stretch) Integrate e-challan SMS gateway mock for overspeeding notifications
 
 ---
 
